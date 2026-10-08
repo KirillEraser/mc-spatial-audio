@@ -77,29 +77,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          JAR="build/libs/mc-spatial-audio-$RELEASE_VERSION.jar"
-          test -f "$JAR"
-          jar tf "$JAR" > logs/jar-contents.txt
-          grep -Fx 'natives/macos/universal/libmcspatial.dylib' logs/jar-contents.txt
-          unzip -p "$JAR" natives/macos/universal/libmcspatial.dylib > native/build/packaged-libmcspatial.dylib
-          lipo -verify_arch arm64 x86_64 native/build/packaged-libmcspatial.dylib
-          codesign --verify --strict native/build/packaged-libmcspatial.dylib
-          mkdir -p native/build/abi-smoke
-          javac -cp build/classes/java/main -d native/build/abi-smoke native/tests/NativeAbiSmoke.java
-          java -cp build/classes/java/main:native/build/abi-smoke NativeAbiSmoke native/build/packaged-libmcspatial.dylib
+          bash scripts/verify-release.sh "$RELEASE_VERSION" 2>&1 | tee logs/verification.log
       - name: Package download files
         shell: bash
         run: |
           set -euo pipefail
-          cp "build/libs/mc-spatial-audio-$RELEASE_VERSION.jar" dist/
-          lipo -verify_arch arm64 x86_64 native/build/MCSpatialProbe.app/Contents/MacOS/MCSpatialProbe
-          codesign --force --sign - native/build/MCSpatialProbe.app
-          codesign --verify --strict native/build/MCSpatialProbe.app
-          ditto -c -k --sequesterRsrc --keepParent native/build/MCSpatialProbe.app dist/MCSpatialProbe-macos-universal.zip
-          cp docs/INSTALL_PREBUILT.md dist/INSTALL.md
-          cp docs/RELEASE_NOTES.md dist/RELEASE_NOTES.md
-          printf '\nBuilt from commit: %s\nVersion: %s\n' "$GITHUB_SHA" "$RELEASE_VERSION" >> dist/RELEASE_NOTES.md
-          (cd dist && shasum -a 256 *.jar MCSpatialProbe-macos-universal.zip INSTALL.md RELEASE_NOTES.md > SHA256SUMS.txt)
+          bash scripts/package-release.sh "$RELEASE_VERSION" 2>&1 | tee logs/packaging.log
       - uses: actions/upload-artifact@v4
         with:
           name: prerelease-download-files
@@ -124,10 +107,17 @@ jobs:
         run: |
           {
             printf 'macOS prerelease build FAILED for commit %s. No release was published by this build.\n\nRun: %s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
-            for log in logs/native-build.log logs/mod-build.log; do
+            for log in logs/native-build.log logs/mod-build.log logs/verification.log logs/packaging.log; do
               if [[ -f "$log" ]]; then
                 printf '\n### %s (last 100 lines)\n```text\n' "$log"
                 tail -n 100 "$log"
+                printf '\n```\n'
+              fi
+            done
+            for report in build/test-results/test/TEST-*.xml; do
+              if [[ -f "$report" ]] && grep -q '<failure' "$report"; then
+                printf '\n### Failing test report: %s\n```xml\n' "$report"
+                tail -n 70 "$report"
                 printf '\n```\n'
               fi
             done
@@ -168,6 +158,7 @@ jobs:
             "dist/mc-spatial-audio-$RELEASE_VERSION.jar" \
             dist/MCSpatialProbe-macos-universal.zip \
             dist/INSTALL.md \
+            dist/RELEASE_NOTES.md \
             dist/SHA256SUMS.txt
       - name: Report published download
         env:
