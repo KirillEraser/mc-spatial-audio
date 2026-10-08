@@ -1,0 +1,183 @@
+name: Build and publish macOS prerelease
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release.yml']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New prerelease version; existing releases are never overwritten'
+        required: true
+        default: '0.1.0-alpha.1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcspatial-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || '0.1.0-alpha.1' }}
+  TRACKING_ISSUE: '2'
+
+jobs:
+  portable-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S native -B native/build -DMCSPATIAL_BUILD_MAC_BACKEND=OFF -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build native/build --parallel
+      - run: ctest --test-dir native/build --output-on-failure
+
+  macos-build:
+    runs-on: macos-15
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
+            echo 'Expected a prerelease version such as 0.1.0-alpha.1' >&2
+            exit 1
+          fi
+          mkdir -p logs dist
+      - name: Report build start
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "macOS prerelease build started for commit $GITHUB_SHA (version $RELEASE_VERSION). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No downloadable release is confirmed yet."
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Build and test universal native backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-native.sh 2>&1 | tee logs/native-build.log
+      - name: Build mod and run all Java tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -Pmod_version="$RELEASE_VERSION" clean build 2>&1 | tee logs/mod-build.log
+      - name: Verify packaged native library and JNI ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="build/libs/mc-spatial-audio-$RELEASE_VERSION.jar"
+          test -f "$JAR"
+          jar tf "$JAR" > logs/jar-contents.txt
+          grep -Fx 'natives/macos/universal/libmcspatial.dylib' logs/jar-contents.txt
+          unzip -p "$JAR" natives/macos/universal/libmcspatial.dylib > native/build/packaged-libmcspatial.dylib
+          lipo -verify_arch arm64 x86_64 native/build/packaged-libmcspatial.dylib
+          codesign --verify --strict native/build/packaged-libmcspatial.dylib
+          mkdir -p native/build/abi-smoke
+          javac -cp build/classes/java/main -d native/build/abi-smoke native/tests/NativeAbiSmoke.java
+          java -cp build/classes/java/main:native/build/abi-smoke NativeAbiSmoke native/build/packaged-libmcspatial.dylib
+      - name: Package download files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "build/libs/mc-spatial-audio-$RELEASE_VERSION.jar" dist/
+          lipo -verify_arch arm64 x86_64 native/build/MCSpatialProbe.app/Contents/MacOS/MCSpatialProbe
+          codesign --force --sign - native/build/MCSpatialProbe.app
+          codesign --verify --strict native/build/MCSpatialProbe.app
+          ditto -c -k --sequesterRsrc --keepParent native/build/MCSpatialProbe.app dist/MCSpatialProbe-macos-universal.zip
+          cp docs/INSTALL_PREBUILT.md dist/INSTALL.md
+          cp docs/RELEASE_NOTES.md dist/RELEASE_NOTES.md
+          printf '\nBuilt from commit: %s\nVersion: %s\n' "$GITHUB_SHA" "$RELEASE_VERSION" >> dist/RELEASE_NOTES.md
+          (cd dist && shasum -a 256 *.jar MCSpatialProbe-macos-universal.zip INSTALL.md RELEASE_NOTES.md > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prerelease-download-files
+          path: dist/*
+          if-no-files-found: error
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prerelease-build-diagnostics
+          path: |
+            logs/
+            build/reports/tests/
+            build/test-results/
+          if-no-files-found: ignore
+      - name: Report build failure
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            printf 'macOS prerelease build FAILED for commit %s. No release was published by this build.\n\nRun: %s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            for log in logs/native-build.log logs/mod-build.log; do
+              if [[ -f "$log" ]]; then
+                printf '\n### %s (last 100 lines)\n```text\n' "$log"
+                tail -n 100 "$log"
+                printf '\n```\n'
+              fi
+            done
+          } > "$RUNNER_TEMP/release-build-failure.md"
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/release-build-failure.md"
+
+  publish:
+    needs: [portable-tests, macos-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: prerelease-download-files
+          path: dist
+      - name: Verify downloaded files
+        run: cd dist && sha256sum -c SHA256SUMS.txt
+      - name: Publish prerelease without overwriting an existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v$RELEASE_VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; choose a new version. Nothing was overwritten." >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "MC Spatial Audio $RELEASE_VERSION — experimental macOS prototype" \
+            --notes-file dist/RELEASE_NOTES.md \
+            --prerelease \
+            "dist/mc-spatial-audio-$RELEASE_VERSION.jar" \
+            dist/MCSpatialProbe-macos-universal.zip \
+            dist/INSTALL.md \
+            dist/SHA256SUMS.txt
+      - name: Report published download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Prerelease v$RELEASE_VERSION was published after automated build/test checks passed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$RELEASE_VERSION. Download the JAR asset, not GitHub's source-code ZIP. AirPods head tracking and macOS control eligibility remain hardware-unverified."
+      - name: Report publication failure
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Prerelease publication failed or was refused. Inspect $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A downloadable release is not confirmed by this workflow run."
