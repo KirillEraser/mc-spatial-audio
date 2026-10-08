@@ -9,26 +9,25 @@ import org.lwjgl.openal.SOFTLoopback;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 
-/** Singleton matching Minecraft's one client sound library. Native handles are serialized here. */
+/** One native output graph for Minecraft's one client sound library. */
 public final class AudioRouter {
     public static final int SAMPLE_RATE = 48_000;
+    private enum Phase { IDLE, PREPARED, ACTIVE, FALLBACK }
+    private static Phase phase = Phase.IDLE;
     private static long loopbackDevice;
     private static long nativeHandle;
     private static boolean failedForSession;
     private static boolean shutdownHookInstalled;
-    private static String lastStatus = "Native route not started (disabled by default).";
+    private static String failureReason = "";
     private AudioRouter() {}
 
     public static synchronized long openDevice(CharSequence requestedName) {
         SpatialSettings settings = SpatialSettings.current();
         if (!settings.enabled() || failedForSession) return ALC10.alcOpenDevice(requestedName);
-        if (loopbackDevice != 0) {
-            throw new IllegalStateException("Multiple concurrent Minecraft sound libraries are unsupported");
-        }
+        if (loopbackDevice != 0) throw new IllegalStateException("Concurrent sound libraries are unsupported");
         long candidate = 0;
         long candidateHandle = 0;
         try {
-            // Global capabilities remain valid independently of a previously closed device.
             ALCCapabilities global = ALC.createCapabilities(0);
             if (!global.ALC_SOFT_loopback) throw new IllegalStateException("OpenAL lacks ALC_SOFT_loopback");
             candidate = SOFTLoopback.alcLoopbackOpenDeviceSOFT((ByteBuffer) null);
@@ -50,16 +49,20 @@ public final class AudioRouter {
             }
             loopbackDevice = candidate;
             nativeHandle = candidateHandle;
-            lastStatus = "Native output preflight succeeded; awaiting Minecraft's context. Tracking/control UI unverified.";
-            SpatialAudioMod.LOG.info("{} {}", lastStatus, NativeBridge.diagnostics(nativeHandle));
+            phase = Phase.PREPARED;
+            failureReason = "";
+            SpatialAudioMod.LOG.info("Prepared native 7.1 output at {} Hz", SAMPLE_RATE);
             return candidate;
         } catch (Exception | LinkageError failure) {
             if (candidateHandle != 0) NativeBridge.destroy(candidateHandle);
             if (candidate != 0) ALC10.alcCloseDevice(candidate);
+            loopbackDevice = 0;
+            nativeHandle = 0;
             ALC.setCapabilities(null);
             failedForSession = true;
-            lastStatus = "Preflight failed; ordinary OpenAL output retained: " + failure.getMessage();
-            SpatialAudioMod.LOG.warn(lastStatus, failure);
+            phase = Phase.FALLBACK;
+            failureReason = String.valueOf(failure.getMessage());
+            SpatialAudioMod.LOG.warn("Native output unavailable; using ordinary OpenAL: {}", failureReason, failure);
             return ALC10.alcOpenDevice(requestedName);
         }
     }
@@ -82,7 +85,6 @@ public final class AudioRouter {
             SOFTLoopback.ALC_FORMAT_TYPE_SOFT, SOFTLoopback.ALC_FLOAT_SOFT,
             SOFTHRTF.ALC_HRTF_SOFT, ALC10.ALC_FALSE, 0
         });
-        // GC-managed direct storage: do not return memory from a popped MemoryStack.
         return BufferUtils.createIntBuffer(merged.length).put(merged).flip();
     }
 
@@ -91,34 +93,56 @@ public final class AudioRouter {
         long context = ALC10.alcGetCurrentContext();
         if (context == 0 || ALC10.alcGetContextsDevice(context) != loopbackDevice) {
             stopNative();
-            lastStatus = "No matching current OpenAL context. Disable the prototype and restart.";
-            SpatialAudioMod.LOG.error(lastStatus);
+            phase = Phase.FALLBACK;
+            failedForSession = true;
+            failureReason = "No matching current OpenAL context; reload audio or disable native output";
+            SpatialAudioMod.LOG.error(failureReason);
             return;
         }
         NativeBridge.attach(nativeHandle, loopbackDevice);
-        lastStatus = "7.1 native route attached. Requested head tracking is NOT proof of active tracking or macOS controls.";
-        SpatialAudioMod.LOG.info("{} {}", lastStatus, NativeBridge.diagnostics(nativeHandle));
+        phase = Phase.ACTIVE;
+        SpatialAudioMod.LOG.info("Native 7.1 output attached; Apple head tracking requested={}", SpatialSettings.current().headTrackingRequested());
+        if (SpatialAudioMod.LOG.isDebugEnabled()) SpatialAudioMod.LOG.debug("{}", NativeBridge.diagnostics(nativeHandle));
     }
 
-    /** Called before Minecraft destroys contexts, and again safely when the device closes. */
     public static synchronized void stopNative() {
         if (nativeHandle != 0) {
             NativeBridge.destroy(nativeHandle);
             nativeHandle = 0;
         }
+        if (phase != Phase.FALLBACK) phase = Phase.IDLE;
     }
 
     public static synchronized boolean closeDevice(long device) {
         if (isLoopback(device)) {
             stopNative();
             loopbackDevice = 0;
-            lastStatus = "Native route stopped; sound-library reload may reopen it.";
         }
         return ALC10.alcCloseDevice(device);
     }
 
+    /** Call before an explicit client-thread reload, never while holding the lock through SoundManager.reload. */
+    public static synchronized void prepareForReload() {
+        failedForSession = false;
+        failureReason = "";
+    }
+
+    public static synchronized String summary() {
+        if (!SpatialAudioMod.isMac()) return "macOS only; ordinary audio output";
+        if (!SpatialSettings.current().enabled() && nativeHandle == 0) return "Disabled; ordinary audio output";
+        return switch (phase) {
+            case IDLE -> "Native audio not started";
+            case PREPARED -> "Starting native audio";
+            case ACTIVE -> SpatialSettings.current().headTrackingRequested()
+                ? "Native 7.1 output; head tracking requested" : "Native 7.1 output; fixed spatialization";
+            case FALLBACK -> "Native output unavailable; see diagnostics";
+        };
+    }
+
     public static synchronized String status() {
-        return "enabled=" + SpatialSettings.current().enabled() + "; " + lastStatus
+        SpatialSettings settings = SpatialSettings.current();
+        return summary() + "\nenabled=" + settings.enabled() + "; headTrackingRequested=" + settings.headTrackingRequested()
+            + "; phase=" + phase + (failureReason.isBlank() ? "" : "; reason=" + failureReason)
             + (nativeHandle == 0 ? "" : "\n" + NativeBridge.diagnostics(nativeHandle));
     }
 }

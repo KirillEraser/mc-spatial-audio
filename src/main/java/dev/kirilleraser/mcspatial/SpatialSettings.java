@@ -2,35 +2,38 @@ package dev.kirilleraser.mcspatial;
 
 import net.neoforged.fml.loading.FMLPaths;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Properties;
 
-/** Read once per JVM: output reconfiguration during playback is intentionally unsupported. */
+/** Persisted user settings; native output is rebuilt only when the user applies/reloads audio. */
 public record SpatialSettings(boolean enabled, boolean headTrackingRequested) {
-    private static SpatialSettings cached;
+    public static final SpatialSettings DEFAULTS = new SpatialSettings(false, true);
+    private static SpatialSettings stored;
+
+    private static Path path() {
+        return FMLPaths.CONFIGDIR.get().resolve("mc-spatial-audio.properties");
+    }
 
     public static synchronized SpatialSettings current() {
-        if (cached != null) return cached;
-        Properties properties = new Properties();
-        Path path = FMLPaths.CONFIGDIR.get().resolve("mc-spatial-audio.properties");
-        try {
-            Files.createDirectories(path.getParent());
-            if (!Files.exists(path)) {
-                Files.writeString(path, "# Experimental; quit Minecraft before editing.\n"
-                    + "# Set enabled=true only after reading the hardware test plan.\n"
-                    + "enabled=false\nheadTrackingRequested=true\n", StandardCharsets.UTF_8);
+        if (stored == null) {
+            try {
+                stored = SettingsFile.read(path());
+                if (!Files.exists(path())) SettingsFile.write(path(), stored);
+            } catch (IOException failure) {
+                SpatialAudioMod.LOG.warn("Could not read settings; native routing remains disabled", failure);
+                stored = DEFAULTS;
             }
-            try (InputStream input = Files.newInputStream(path)) { properties.load(input); }
-            String enabled = System.getProperty("mcspatial.enabled", properties.getProperty("enabled", "false"));
-            cached = new SpatialSettings(Boolean.parseBoolean(enabled),
-                Boolean.parseBoolean(properties.getProperty("headTrackingRequested", "true")));
-        } catch (IOException | IllegalArgumentException failure) {
-            SpatialAudioMod.LOG.warn("Could not read settings; native routing remains disabled", failure);
-            cached = new SpatialSettings(false, true);
         }
-        return cached;
+        String override = System.getProperty("mcspatial.enabled");
+        return override == null ? stored : new SpatialSettings(Boolean.parseBoolean(override), stored.headTrackingRequested());
+    }
+
+    public static boolean enabledOverridden() {
+        return System.getProperty("mcspatial.enabled") != null;
+    }
+
+    public static synchronized void save(SpatialSettings settings) throws IOException {
+        SettingsFile.write(path(), settings);
+        stored = settings; // Do not update runtime settings if persistence failed.
     }
 }

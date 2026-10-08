@@ -1,0 +1,18 @@
+{
+  "mc_spatial_audio.config.title": "MC Spatial Audio",
+  "mc_spatial_audio.config.enabled": "Spatial audio: %s",
+  "mc_spatial_audio.config.enabled.tooltip": "Route Minecraft audio through Apple's headphone spatial renderer. Apply reloads audio safely. Uses the macOS default output device.",
+  "mc_spatial_audio.config.tracking": "Head tracking: %s",
+  "mc_spatial_audio.config.tracking.tooltip": "Request Apple-managed head tracking on supported headphones. Off keeps fixed spatialization. Apple controls the reference frame; the mod does not add a recenter timer.",
+  "mc_spatial_audio.config.apple": "Apple manages head tracking and its reference frame. Select your headphones in macOS before applying.",
+  "mc_spatial_audio.config.macos": "The native audio backend requires macOS. Other platforms keep ordinary Minecraft audio.",
+  "mc_spatial_audio.config.override": "The enabled setting is controlled by the mcspatial.enabled JVM argument. Remove that argument to change it here.",
+  "mc_spatial_audio.config.status": "Output: %s",
+  "mc_spatial_audio.config.copy": "Copy diagnostics",
+  "mc_spatial_audio.config.copied": "Diagnostics copied to clipboard.",
+  "mc_spatial_audio.config.defaults": "Reset defaults",
+  "mc_spatial_audio.config.staged": "Defaults staged. Apply to save them.",
+  "mc_spatial_audio.config.apply": "Apply & reload",
+  "mc_spatial_audio.config.failed": "Could not apply settings. Check latest.log.",
+  "mc_spatial_audio.reload.done": "Settings applied; audio engine reloaded."
+}
