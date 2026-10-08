@@ -23,7 +23,7 @@ public final class SpatialAudioMod {
     private static void registerCommands(RegisterClientCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("mcspatial")
             .then(Commands.literal("status").executes(context -> {
-                context.getSource().sendSuccess(Component.literal(AudioRouter.status()));
+                context.getSource().sendSuccess(() -> Component.literal(AudioRouter.status()), false);
                 return 1;
             })));
     }
