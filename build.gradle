@@ -12,6 +12,8 @@ repositories { mavenCentral() }
 
 neoForge {
     version = project.neo_version
+    // Bytecode hook tests read the actual mapped Minecraft Library.class.
+    addModdingDependenciesTo(sourceSets.test)
     runs {
         client { client() }
     }
@@ -23,6 +25,9 @@ neoForge {
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    // Declare ASM explicitly instead of relying on the main mod's toolchain classpath.
+    testImplementation 'org.ow2.asm:asm:9.7.1'
+    testImplementation 'org.ow2.asm:asm-tree:9.7.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
