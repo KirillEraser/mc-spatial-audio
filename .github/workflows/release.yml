@@ -1,4 +1,4 @@
-name: Build and publish macOS prerelease
+name: Build and publish macOS release
 
 on:
   push:
@@ -7,10 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New prerelease version; existing releases are never overwritten'
+        description: 'New version, e.g. 1.0.0-rc.1 or 1.0.0; existing releases are never overwritten'
         required: true
-        default: '0.1.0-alpha.1'
+        default: '1.0.0-rc.1'
         type: string
+      hardware_confirmed:
+        description: 'For stable only: confirm this version passed config/reload, listening balance and Apple recentering checks'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -20,8 +25,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_VERSION: ${{ inputs.version || '0.1.0-alpha.1' }}
-  TRACKING_ISSUE: '2'
+  RELEASE_VERSION: ${{ inputs.version || '1.0.0-rc.1' }}
+  HARDWARE_CONFIRMED: ${{ inputs.hardware_confirmed || false }}
+  TRACKING_ISSUE: '4'
 
 jobs:
   portable-tests:
@@ -41,12 +47,16 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
-      - name: Validate release version
+      - name: Validate release request
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
-            echo 'Expected a prerelease version such as 0.1.0-alpha.1' >&2
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo 'Expected a version such as 1.0.0-rc.1 or 1.0.0' >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_VERSION" != *-* && "$HARDWARE_CONFIRMED" != 'true' ]]; then
+            echo 'Stable publication needs confirmation of this version on real hardware; use an -rc candidate first.' >&2
             exit 1
           fi
           mkdir -p logs dist
@@ -55,7 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "macOS prerelease build started for commit $GITHUB_SHA (version $RELEASE_VERSION). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No downloadable release is confirmed yet."
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "macOS build started for commit $GITHUB_SHA (version $RELEASE_VERSION). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No new release download is confirmed yet."
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -85,14 +95,14 @@ jobs:
           bash scripts/package-release.sh "$RELEASE_VERSION" 2>&1 | tee logs/packaging.log
       - uses: actions/upload-artifact@v4
         with:
-          name: prerelease-download-files
+          name: release-download-files
           path: dist/*
           if-no-files-found: error
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: prerelease-build-diagnostics
+          name: release-build-diagnostics
           path: |
             logs/
             build/reports/tests/
@@ -106,7 +116,7 @@ jobs:
         shell: bash
         run: |
           {
-            printf 'macOS prerelease build FAILED for commit %s. No release was published by this build.\n\nRun: %s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'macOS build FAILED for commit %s. No release was published by this build.\n\nRun: %s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
             for log in logs/native-build.log logs/mod-build.log logs/verification.log logs/packaging.log; do
               if [[ -f "$log" ]]; then
                 printf '\n### %s (last 100 lines)\n```text\n' "$log"
@@ -134,11 +144,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: prerelease-download-files
+          name: release-download-files
           path: dist
       - name: Verify downloaded files
         run: cd dist && sha256sum -c SHA256SUMS.txt
-      - name: Publish prerelease without overwriting an existing tag
+      - name: Publish without overwriting an existing tag
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -149,12 +159,21 @@ jobs:
             echo "Release $TAG already exists; choose a new version. Nothing was overwritten." >&2
             exit 1
           fi
+          cp dist/RELEASE_NOTES.md "$RUNNER_TEMP/release-notes.md"
+          FLAGS=()
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            FLAGS+=(--prerelease)
+            printf '\nPublication status: release candidate; runtime acceptance still required.\n' >> "$RUNNER_TEMP/release-notes.md"
+          else
+            test "$HARDWARE_CONFIRMED" = 'true'
+            printf '\nPublication status: stable; runtime acceptance confirmed by the publisher for this version.\n' >> "$RUNNER_TEMP/release-notes.md"
+          fi
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "MC Spatial Audio $RELEASE_VERSION — experimental macOS prototype" \
-            --notes-file dist/RELEASE_NOTES.md \
-            --prerelease \
+            --title "MC Spatial Audio $RELEASE_VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${FLAGS[@]}" \
             "dist/mc-spatial-audio-$RELEASE_VERSION.jar" \
             dist/MCSpatialProbe-macos-universal.zip \
             dist/INSTALL.md \
@@ -164,11 +183,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Prerelease v$RELEASE_VERSION was published after automated build/test checks passed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$RELEASE_VERSION. Download the JAR asset, not GitHub's source-code ZIP. AirPods head tracking and macOS control eligibility remain hardware-unverified."
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Release v$RELEASE_VERSION published after automated checks passed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$RELEASE_VERSION. Download the JAR asset. Hardware/runtime confirmation flag: $HARDWARE_CONFIRMED. Candidate publication does not replace the new UI, balance, recentering and coexistence tests."
       - name: Report publication failure
         if: failure()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Prerelease publication failed or was refused. Inspect $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A downloadable release is not confirmed by this workflow run."
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Publication failed or was refused. Inspect $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A new release is not confirmed by this workflow run."
