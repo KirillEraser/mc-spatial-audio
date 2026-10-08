@@ -1,0 +1,39 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+issueTrackerURL="https://github.com/KirillEraser/mc-spatial-audio/issues"
+
+[[mods]]
+modId="mc_spatial_audio"
+version="${mod_version}"
+displayName="MC Spatial Audio (Experimental)"
+authors="mc-spatial-audio contributors"
+description='''
+Experimental macOS spatial-audio output bridge. Preserves OpenAL and EFX.
+Head tracking and macOS system controls require hardware verification.
+Disabled by default. No custom menu-bar UI.
+'''
+
+[[mixins]]
+config="mc_spatial_audio.mixins.json"
+
+[[dependencies.mc_spatial_audio]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.256,21.2)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.mc_spatial_audio]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.mc_spatial_audio]]
+modId="sound_physics_remastered"
+type="optional"
+versionRange="*"
+ordering="AFTER"
+side="CLIENT"

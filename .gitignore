@@ -1,0 +1,10 @@
+.gradle/
+build/
+run/
+out/
+.idea/
+*.iml
+.DS_Store
+native/build/
+src/main/resources/natives/**/*.dylib
+*.log
