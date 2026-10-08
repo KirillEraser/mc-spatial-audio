@@ -29,8 +29,9 @@ public abstract class LibraryMixin {
         }
     }
 
+    // Callback-only handler deliberately does not depend on names/types of init's arguments.
     @Inject(method = "init", at = @At("TAIL"))
-    private void mcspatial$attach(String deviceName, boolean directionalAudio, CallbackInfo callback) {
+    private void mcspatial$attach(CallbackInfo callback) {
         AudioRouter.onLibraryInitialized();
     }
 

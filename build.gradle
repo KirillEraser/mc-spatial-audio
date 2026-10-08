@@ -13,10 +13,7 @@ repositories { mavenCentral() }
 neoForge {
     version = project.neo_version
     runs {
-        client {
-            client()
-            systemProperty 'mcspatial.enabled', 'false'
-        }
+        client { client() }
     }
     mods {
         mc_spatial_audio { sourceSet sourceSets.main }
