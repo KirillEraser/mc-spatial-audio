@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0
+
+- First stable release.
+- Add mod-list icon.
+
 ## 1.0.0-rc.1
 
 - Fix NeoForge config-screen registration that broke compilation.

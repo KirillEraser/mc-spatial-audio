@@ -1,12 +1,12 @@
 # MC Spatial Audio
 
+<img src="docs/icon.png" width="96" align="right" alt="">
+
 [![Latest release](https://img.shields.io/github/v/release/KirillEraser/mc-spatial-audio?include_prereleases&label=release)](https://github.com/KirillEraser/mc-spatial-audio/releases)
 [![Build](https://github.com/KirillEraser/mc-spatial-audio/actions/workflows/build.yml/badge.svg)](https://github.com/KirillEraser/mc-spatial-audio/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Apple-native spatial audio for Minecraft on macOS.** Minecraft's sound goes through Apple's headphone spatial renderer — the same one macOS uses for movies and music — with optional head tracking on AirPods Pro / Max and other supported headphones. Minecraft keeps doing its own positioning and distance attenuation; [Sound Physics Remastered](https://modrinth.com/mod/sound-physics-remastered) works alongside it but isn't required.
-
-> **Status: 1.0 release candidate.** Builds and automated tests pass and the alpha was tested on real hardware, but the new settings screen, reload flow and channel balance still need listening checks before 1.0.0 stable. Bug reports welcome.
 
 ## Requirements
 

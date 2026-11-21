@@ -1,22 +1,24 @@
-# MC Spatial Audio — 1.0 release candidate
+# MC Spatial Audio 1.0.0
 
-Apple-native headphone spatial audio for Minecraft 1.21.1 / NeoForge on macOS. The native renderer that worked in the alpha is retained; Minecraft's positioning and attenuation are unchanged.
+Apple-native headphone spatial audio for Minecraft 1.21.1 / NeoForge on macOS, with optional head tracking on AirPods and other supported headphones. Minecraft's own positioning and distance attenuation are unchanged.
 
-## Polish
+## What's new since the alpha
 
 - In-game settings: **Mods → MC Spatial Audio → Config**.
-- Spatial-audio/head-tracking toggles, safe apply/reload, defaults and diagnostic copy.
-- Atomic settings persistence; existing alpha properties files remain compatible.
-- Skip vanilla's playback-only HRTF reset only on our loopback device; ordinary output is unchanged.
-- Channel-order, isolation, polarity and unchanged-gain regression checks.
-- Quieter startup logs and concise project documentation.
-
-Apple controls the tracking reference frame. No custom recenter timer, raw-pose integration, rear-channel boost or global attenuation workaround is introduced.
+- Spatial audio and head-tracking toggles, **Apply & reload** without restarting, reset to defaults, and **Copy diagnostics**.
+- `/mcspatial status` and `/mcspatial reload` commands.
+- Settings save atomically; alpha config files carry over.
+- Vanilla's HRTF reset is skipped only on the mod's own output device; normal output is untouched.
+- Mod-list icon, quieter logs, rewritten docs.
 
 ## Download
 
-Install the `mc-spatial-audio-<version>.jar` asset. It includes the universal macOS native library; no separate process/build is needed. `INSTALL.md` explains setup, and the probe ZIP is optional. Source ZIPs are not compiled mods.
+Install `mc-spatial-audio-<version>.jar` — not the source ZIP. It contains the universal (Apple Silicon + Intel) native library; nothing else to install. See `INSTALL.md`. The probe ZIP is an optional test-tone app.
 
-Compilation/tests, universal native packaging and JNI ABI checks gate publication. The new UI/reload behavior, stationary-head recentering, perceived channel balance and Sound Physics Remastered coexistence still need candidate listening/client checks before a validated stable release. The alpha's user report is not automatically a test of this candidate.
+## Requirements and limits
 
-Requires Minecraft 1.21.1, NeoForge 21.1.256+ within 21.1, macOS 13+. Java 21 recommended. Uses the macOS default output; explicit reload is needed after device changes. Horizontal 7.1 bed, not object audio. Native files are ad-hoc signed, not Developer ID signed/notarized. macOS system controls remain platform-governed.
+- Minecraft 1.21.1, NeoForge 21.1.256+ (within 21.1), macOS 13+, Java 21.
+- Uses the macOS default output; run `/mcspatial reload` after switching devices.
+- Horizontal 7.1 bed, not per-sound object audio.
+- Native files are ad-hoc signed, not notarized. Recentering and system audio controls are handled by macOS.
+- Sound Physics Remastered is optional and compatible.
