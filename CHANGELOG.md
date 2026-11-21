@@ -2,6 +2,9 @@
 
 ## 1.0.0-rc.1
 
+- Fix NeoForge config-screen registration that broke compilation.
+- Rewrite README for public release.
+
 - Add in-game configuration and explicit audio reload without a game restart.
 - Preserve alpha configuration, atomically save settings, and retain unknown keys.
 - Bypass vanilla HRTF reset only on the native loopback route.

@@ -22,7 +22,7 @@ public final class SpatialAudioMod {
     public SpatialAudioMod(ModContainer container) {
         SpatialSettings.current();
         container.registerExtensionPoint(IConfigScreenFactory.class,
-            () -> (owner, parent) -> new SpatialSettingsScreen(parent));
+            (IConfigScreenFactory) (owner, parent) -> new SpatialSettingsScreen(parent));
         NeoForge.EVENT_BUS.addListener(SpatialAudioMod::registerCommands);
         LOG.info("Audio bridge loaded. Configure through Mods > MC Spatial Audio > Config.");
     }
